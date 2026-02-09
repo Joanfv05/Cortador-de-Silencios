@@ -6,13 +6,12 @@ from pathlib import Path
 def pausa_final():
     input("\nPulsa ENTER para cerrar la ventana...")
 
-print("🎬 AUTO-EDITOR – Eliminador de silencios\n")
+print("🎬 AUTO-EDITOR – Eliminador de silencios \n")
 
 # Carpetas relativas al script
 BASE_DIR = Path(__file__).parent
 carpeta_entrada = BASE_DIR / "input_videos"
 carpeta_salida = BASE_DIR / "output_videos"
-
 
 # Crear carpetas si no existen
 carpeta_entrada.mkdir(exist_ok=True)
@@ -48,14 +47,16 @@ for archivo in os.listdir(carpeta_entrada):
 
     print(f"▶️ Procesando: {archivo}")
 
-    # Comando clásico auto-editor (análisis + edición con barra de progreso)
+    # Comando auto-editor con multi-hilo
     comando = [
-    "auto-editor",
-    str(video_input),
-    "--edit", "audio:threshold=0.03",  # solo corta el audio
-    "--margin", "0.2sec",
-    "-o", str(video_output)
-]
+        "auto-editor",
+        str(video_input),
+        "--edit", "audio:threshold=0.03",  # solo corta el audio
+        "--margin", "0.2sec",
+        "-o", str(video_output),
+        "--jobs", "0"  # usar todos los hilos disponibles
+    ]
+
     # Ejecutar auto-editor
     resultado = subprocess.run(comando)
 
