@@ -1,7 +1,3 @@
-# Carpetas de vídeos
-input_videos/
-output_videos/
-
 # Vídeos sueltos por si acaso
 *.mp4
 *.mov
