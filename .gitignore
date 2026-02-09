@@ -1,0 +1,30 @@
+# Carpetas de vídeos
+input_videos/
+output_videos/
+
+# Vídeos sueltos por si acaso
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.wmv
+*.flv
+*.webm
+
+# Archivos temporales
+*.wav
+*.mp3
+*.aac
+*.tmp
+
+# Cache de Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Entornos virtuales
+venv/
+.env/
+
+# Logs
+*.log
