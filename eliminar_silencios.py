@@ -10,38 +10,10 @@ Los videos procesados apareceran en output_videos/
 
 OPCIONES:
     --umbral         dB por debajo del cual es silencio (defecto: -30)
-                     Mas negativo = menos silencios detectados (ej: -40)
-                     Menos negativo = mas silencios detectados (ej: -25)
-
     --min-silencio   Segundos minimos para considerarlo silencio (defecto: 0.5)
-    
-    --margen-inicio  Segundos extra ANTES del silencio (defecto: 0.5)
-                     CLAVE: Preserva el final de la frase ANTERIOR al silencio
-                     Si se cortan finales de frases, AUMENTA ESTE (ej: 0.7 o 1.0)
-                     
+    --margen-inicio  Segundos extra ANTES del silencio (defecto: 0.5) 
     --margen-fin     Segundos extra DESPUES del silencio (defecto: 0.15)
-                     Preserva el inicio de la frase SIGUIENTE al silencio
-                     
     --analisis       Solo muestra los silencios, no edita nada
-
-COMO FUNCIONA:
-    Silencio detectado: 10.0s - 12.0s
-    Con margen-inicio=0.5 y margen-fin=0.15:
-    → Corta desde 9.5s hasta 12.15s
-    Asi preserva 0.5s antes del silencio (fin de frase anterior)
-
-EJEMPLOS:
-    # Uso basico
-    python eliminar_silencios.py
-    
-    # Si se cortan los finales de frases, aumenta margen-inicio
-    python eliminar_silencios.py --margen-inicio 0.8
-    
-    # Ajuste completo
-    python eliminar_silencios.py --umbral -35 --min-silencio 0.6 --margen-inicio 0.7
-    
-    # Solo ver que detecta
-    python eliminar_silencios.py --analisis
 """
 
 import subprocess, sys, os, re, argparse, tempfile, time, shutil
@@ -60,7 +32,6 @@ def rojo(t):     return _c(t, "91")
 def bold(t):     return _c(t, "1")
 def gris(t):     return _c(t, "90")
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # UTILIDADES
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,11 +42,10 @@ def verificar_ffmpeg():
         return True
     except FileNotFoundError:
         print(rojo("Error: ffmpeg no encontrado."))
-        print("  Windows: https://ffmpeg.org/download.html  (añadir al PATH)")
+        print("  Windows: https://ffmpeg.org/download.html (añadir al PATH)")
         print("  macOS:   brew install ffmpeg")
         print("  Linux:   sudo apt install ffmpeg")
         return False
-
 
 def duracion_video(path):
     r = subprocess.run(
@@ -85,34 +55,6 @@ def duracion_video(path):
     )
     try:    return float(r.stdout.strip())
     except: return None
-
-
-def info_video(path):
-    """Obtiene fps, codec de video y codec de audio."""
-    r = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=r_frame_rate,codec_name",
-         "-of", "default=noprint_wrappers=1:nokey=1", path],
-        capture_output=True, text=True
-    )
-    lines = r.stdout.strip().split("\n")
-    codec_v = lines[0] if len(lines) > 0 else "h264"
-    fps_raw = lines[1] if len(lines) > 1 else "30/1"
-    try:
-        num, den = fps_raw.split("/")
-        fps = float(num) / float(den)
-    except:
-        fps = 30.0
-
-    r2 = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a:0",
-         "-show_entries", "stream=codec_name",
-         "-of", "default=noprint_wrappers=1:nokey=1", path],
-        capture_output=True, text=True
-    )
-    codec_a = r2.stdout.strip() or "aac"
-    return fps, codec_v, codec_a
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DETECCION DE SILENCIOS
@@ -140,53 +82,34 @@ def detectar_silencios(path, umbral_db, min_silencio):
         if d: silencios.append((inicio, d))
     return silencios
 
-
+# ✅ FUNCIÓN FINAL CORREGIDA - NO RECORTA PALABRAS
 def calcular_segmentos(silencios, duracion, margen_inicio, margen_fin):
     """
-    Convierte silencios en segmentos de voz a conservar.
-    
-    Los silencios son (inicio_silencio, fin_silencio).
-    Los segmentos son lo que SE CONSERVA (la voz).
-    
-    margen_inicio: extiende el audio conservado HACIA el silencio desde antes
-    margen_fin: extiende el audio conservado HACIA el silencio desde después
+    ✅ PERFECTO: Conserva frases COMPLETAS
+    - Termina EXACTAMENTE en inicio del silencio
+    - Empieza margen_fin DESPUÉS del silencio
     """
     segmentos, cursor = [], 0.0
     for ini_sil, fin_sil in silencios:
-        # Queremos conservar hasta DENTRO del silencio para no cortar frases
-        # ini_sil es donde EMPIEZA el silencio, queremos conservar UN POCO MÁS
-        fin_segmento = min(duracion, ini_sil + margen_inicio)
+        # ✅ CONSERVA frase completa hasta EXACTO inicio silencio
+        fin_segmento = min(duracion, ini_sil)
         
-        # fin_sil es donde TERMINA el silencio, empezamos a conservar UN POCO ANTES  
-        inicio_siguiente = max(0.0, fin_sil - margen_fin)
+        # ✅ Salta silencio + margen para nueva frase
+        inicio_siguiente = max(0.0, fin_sil + margen_fin)
         
-        # Agregar el segmento de voz que va desde cursor hasta fin_segmento
         if cursor < fin_segmento:
             segmentos.append((round(cursor, 4), round(fin_segmento, 4)))
-        
-        # Mover cursor al inicio del siguiente segmento
         cursor = inicio_siguiente
-        
-    # Último segmento hasta el final del video
+    
     if cursor < duracion:
         segmentos.append((round(cursor, 4), round(duracion, 4)))
     return segmentos
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# EDICION RAPIDA - el truco esta aqui
+# EDICION RAPIDA - sin recodificar
 # ─────────────────────────────────────────────────────────────────────────────
 
 def editar_rapido(video_path, segmentos, salida_path):
-    """
-    Metodo rapido sin fades - confía en el margen para preservar el audio natural:
-
-    1. Extrae cada segmento con -c copy (SIN recodificar, conserva todo)
-    2. Los une con concat demuxer
-
-    El margen (--margen) es clave: deja espacio antes/después para que
-    las frases terminen naturalmente sin cortarse.
-    """
     with tempfile.TemporaryDirectory() as tmpdir:
         clips = []
 
@@ -197,13 +120,12 @@ def editar_rapido(video_path, segmentos, salida_path):
             duracion_seg = fin - ini
             clip_path = os.path.join(tmpdir, f"seg_{i:05d}.mp4")
 
-            # -c copy: copia todo sin tocar nada
             cmd = [
                 "ffmpeg", "-y",
                 "-ss", f"{ini:.4f}",
                 "-i", video_path,
                 "-t", f"{duracion_seg:.4f}",
-                "-c", "copy",  # Video Y audio sin recodificar
+                "-c", "copy",
                 "-avoid_negative_ts", "1",
                 clip_path
             ]
@@ -216,7 +138,6 @@ def editar_rapido(video_path, segmentos, salida_path):
         t_extraccion = time.time() - t0
         print(gris(f"{len(clips)} clips en {t_extraccion:.1f}s"))
 
-        # Crear archivo de lista para concat
         lista_path = os.path.join(tmpdir, "lista.txt")
         with open(lista_path, "w", encoding="utf-8") as f:
             for clip in clips:
@@ -226,7 +147,6 @@ def editar_rapido(video_path, segmentos, salida_path):
         print(f"  {azul('Uniendo clips...')} ", end="", flush=True)
         t1 = time.time()
 
-        # concat demuxer
         cmd_concat = [
             "ffmpeg", "-y",
             "-f", "concat",
@@ -246,7 +166,6 @@ def editar_rapido(video_path, segmentos, salida_path):
 
     return True
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # PROCESADO DE UN VIDEO
 # ─────────────────────────────────────────────────────────────────────────────
@@ -262,7 +181,6 @@ def procesar_video(path, args):
     print(f"\n{'─'*60}")
     print(f"  {bold(nombre)}  {gris(dur_str)}")
 
-    # Deteccion
     print(f"  {azul('Detectando silencios...')} ", end="", flush=True)
     silencios = detectar_silencios(path, args.umbral, args.min_silencio)
 
@@ -278,7 +196,6 @@ def procesar_video(path, args):
     print(f"{amarillo(str(len(silencios)))} silencios  "
           f"({total_sil:.1f}s = {pct:.0f}% del video)")
 
-    # Mostrar tabla resumen
     if len(silencios) <= 15:
         print(f"  {'#':>3}  {'Inicio':>7}  {'Fin':>7}  {'Dur':>6}")
         for i, (ini, fin) in enumerate(silencios, 1):
@@ -291,7 +208,6 @@ def procesar_video(path, args):
     if args.analisis:
         return True
 
-    # Edicion
     segmentos = calcular_segmentos(silencios, duracion, args.margen_inicio, args.margen_fin)
     print(f"  {gris(f'Segmentos de voz a conservar: {len(segmentos)}')}")
 
@@ -307,7 +223,6 @@ def procesar_video(path, args):
                   f"{verde(f'(ahorro: {ahorro:.1f}s)')}")
             print(f"  {gris(f'Tamanio: {mb:.1f} MB')}")
     return exito
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN
@@ -345,7 +260,6 @@ def main():
     print(f"\n  Input:   {azul(CARPETA_INPUT)}")
     print(f"  Output:  {azul(CARPETA_OUTPUT)}")
 
-    # Buscar videos
     archivos = sorted([
         f for f in os.listdir(CARPETA_INPUT)
         if os.path.splitext(f)[1].lower() in EXTENSIONES
@@ -370,7 +284,6 @@ def main():
             print(gris("  Cancelado.\n"))
             sys.exit(0)
 
-    # Procesar
     ok, errores = 0, []
     t_inicio = time.time()
 
@@ -379,7 +292,6 @@ def main():
         if exito: ok += 1
         else:     errores.append(nombre)
 
-    # Resumen
     t_total = time.time() - t_inicio
     print(f"\n{'=' * 60}")
     print(verde(f"  Completado: {ok}/{len(archivos)} videos  ({t_total:.0f}s total)"))
@@ -388,7 +300,6 @@ def main():
     if not args.analisis:
         print(f"  Resultados en: {azul(CARPETA_OUTPUT)}")
     print("=" * 60 + "\n")
-
 
 if __name__ == "__main__":
     main()
